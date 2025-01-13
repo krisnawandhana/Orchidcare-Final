@@ -1,23 +1,83 @@
-import React from "react";
-import { View, Text } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Text, Image, ScrollView, ActivityIndicator } from "react-native";
+import { fetchNotifications } from "../../constants/fetchNotif";
+import { supabase } from "../../lib/supabase";
 
 
 const Notification = () => {
-  const notifications = [
-    "New message from John",
-    "Water your plants today!",
-    "Temperature exceeded the threshold",
-  ];
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
 
+  const getNotifications = async () => {
+    setLoading(true);
+    const data = await fetchNotifications();
+    setNotifications(data);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    getNotifications();
+
+        const dataTable = supabase
+          .channel("custom-all-channel")
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "notifications" },
+            (payload) => {
+              console.log("Data table changed, fetching latest data...",payload);
+              getNotifications(); // Ambil data terbaru saat ada perubahan
+            }
+          )
+          .subscribe();
+    
+        // Bersihkan langganan saat komponen di-unmount
+        return () => {
+          supabase.removeChannel(dataTable);
+        };
+  }, []);
 
   return (
-    <View className="flex-1 bg-[#F7FBFF] justify-center items-center">
-      <Text className="text-purple-600 text-2xl font-bold">Notifications</Text>
-      {notifications.map((item, index) => (
-        <Text key={index} className="text-gray-600 mt-2">
-          {item}
-        </Text>
-      ))}
+    <View className="container flex-1 bg-[#F7FBFF]">
+      <View className="p-4">
+        <Text className="text-2xl font-extrabold text-purple-600 mb-4">Notifications</Text>
+        {loading ? (
+          <ActivityIndicator size="large" color="#6B46C1" />
+        ) : (
+          <ScrollView className="mb-10">
+            {notifications.length > 0 ? (
+              notifications.map((notif) => (
+              <View
+                key={notif.id}
+                className="flex-row items-center p-4 bg-white rounded-lg shadow-md my-4"
+              >
+                <Image
+                  source={require("../../assets/icon/bot.png")}
+                  className="w-12 h-12"
+                  alt="Orchid-bot icon"
+                />
+                <View className="flex-1 mx-4">
+                  <Text className="text-lg font-semibold">Orchid-bot</Text>
+                  <Text className="text-gray-600">{notif.message}</Text>
+                  <Text className="text-sm text-gray-500 mt-2">
+                    {new Intl.DateTimeFormat('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: '2-digit',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: false, // Format 24 jam
+                    }).format(new Date(notif.created_at))}
+                  </Text>
+                </View>
+              </View>
+              ))
+            ) : (
+              <Text className="text-gray-500">No notifications available</Text>
+            )}
+          </ScrollView>
+        )}
+      </View>
     </View>
   );
 };

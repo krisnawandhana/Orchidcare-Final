@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef  } from "react";
-import { View, Text, TextInput, Image, ScrollView, TouchableOpacity } from "react-native";
-import { BellIcon } from "react-native-heroicons/outline";
+import { View, Text, TextInput, Image, ScrollView } from "react-native";
 import { supabase } from "../../lib/supabase";
 import { calculateFuzzyScore } from "../../constants/fuzzyLogic";
-import PopupMenu from "../../components/PopupMenu";
 import * as Notifications from 'expo-notifications';
 import { initializeNotifications } from "../../lib/notification";
+import { sendNotification } from "../../constants/fetchNotif";
+import { useRealtimeSubscription } from "../../hook/useRealtimeSubscription";
+import OverallGrowthChart from "../../components/charts/OverallGrowthChart";
 
 
 initializeNotifications();
@@ -13,12 +14,6 @@ initializeNotifications();
 const Homepage = () => {
   const [latestData, setLatestData] = useState(null);
   const [fuzzyScore, setFuzzyScore] = useState(null);
-  const [isPopupVisible, setIsPopupVisible] = useState(false);
-  const notificationIdentifierRef = useRef(null);
-
-  const togglePopup = () => {
-    setIsPopupVisible(!isPopupVisible);
-  };
 
   const fetchDataFromSupabase = async () => {
     try {
@@ -45,66 +40,58 @@ const Homepage = () => {
     return identifier;
   };
 
-  useEffect(() => {
-    const getData = async () => {
-      const data = await fetchDataFromSupabase();
-      setLatestData(data); // Set data terbaru ke state
-
-      if(data){
-        const score = calculateFuzzyScore(
+  const getData = async () => {
+    const data = await fetchDataFromSupabase();
+    setLatestData(data); // Set data terbaru ke state
+    
+    if(data){
+      const score = calculateFuzzyScore(
           data.temperature, 
           data.humidity, 
           data.light_intensity
         );
         setFuzzyScore(score); // Set fuzzy score ke state
-
+        
         if (score < 50) {
           const title = "Growth Alert!";
           const body = `Fuzzy score is low (${score.toFixed(2)}%). Check your plant's condition.`;
           scheduleNotification(title, body);
+          
+          const message = body; // Gunakan body sebagai pesan
+          console.log("Sending notification:", message);
+          const result = await sendNotification(message);
+          
+          if (result) {
+            console.log("Notification saved to database:", result);
+          } else {
+            console.error("Failed to save notification to database.");
+          }
         }
       }
     };
-
-    getData();
-
+    
     // Berlangganan ke perubahan tabel Supabase
-    const dataTable = supabase
-      .channel("custom-all-channel")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "data_table" },
-        () => {
-          console.log("Data table changed, fetching latest data...");
-          getData(); // Ambil data terbaru saat ada perubahan
-        }
-      )
-      .subscribe();
-
-    // Bersihkan langganan saat komponen di-unmount
-    return () => {
-      supabase.removeChannel(dataTable);
-    };
+    useRealtimeSubscription(() => getData());
+    
+  useEffect(() => {
+    getData();
+    
   }, []);
 
   return (
     <ScrollView className="container bg-[#F7FBFF]">
         {/* Header */}
-        <View className="flex-row justify-between items-center mt-4">
+        <View className="flex-row justify-left items-center mt-4">
           <View className="flex-row items-center">
             <Image
               source={require("../../assets/profile/profile.png")}
               className="w-14 h-14 rounded-full"
             />
           </View>
-          <View className="mr-40">
+          <View className="mx-4">
             <Text className=" text-purple-600 text-xl font-semibold">Hi, Tari</Text>
             <Text className="text-purple-600 text-sm">Welcome to Orchidcare</Text>
           </View>
-          <TouchableOpacity  onPress={togglePopup}>
-            <BellIcon className="" size={30} color="#9D4EDD" />
-          </TouchableOpacity>
-          <PopupMenu isVisible={isPopupVisible} onClose={togglePopup} />
         </View>
 
 
@@ -199,14 +186,10 @@ const Homepage = () => {
           </View>
         </View>
 
-
         {/* Growth Graph */}
-        <View className="mt-6">
-          <Text className="text-purple-600 text-lg font-bold">Growth Graph</Text>
-          <Image
-            source={{ uri: "https://via.placeholder.com/300x150" }}
-            className="w-full h-32 mt-4 rounded-lg"
-          />
+        <View className="mb-6">
+          <Text className="text-purple-600 text-lg font-bold my-4">Growth Graph</Text>
+          <OverallGrowthChart />
         </View>
     </ScrollView>
   );

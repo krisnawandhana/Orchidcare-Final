@@ -2,7 +2,7 @@ import { ScrollView, TouchableOpacity, Text, View } from 'react-native';
 import React, { useEffect, useState } from 'react';
 import { fetchHumidityData, fetchLightIntensityData, fetchTemperatureData } from '../../constants/fetchData';
 import { calculateFuzzyScore } from '../../constants/fuzzyLogic';
-import { supabase } from '../../lib/supabase';
+import { useRealtimeSubscription } from '../../hook/useRealtimeSubscription';
 
 const Logs = () => {
   const [logs, setLogs] = useState([]);
@@ -46,57 +46,46 @@ const Logs = () => {
   };
 
   // Realtime subscription ke tabel data_table
+  useRealtimeSubscription(() => fetchLogsData());
+
   useEffect(() => {
     fetchLogsData(); // Fetch data awal
-
-    const dataTable = supabase
-      .channel('custom-all-channel')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'data_table' },
-        () => {
-          console.log('Data table changed, fetching latest data...');
-          fetchLogsData(); // Ambil data terbaru saat ada perubahan
-        }
-      )
-      .subscribe();
-
-    // Bersihkan langganan saat komponen di-unmount
-    return () => {
-      supabase.removeChannel(dataTable);
-    };
   }, []);
 
   return (
     <>
-      <ScrollView className="container flex-1 bg-[#F7FBFF]">
-        <View className="flex-row justify-between items-center border-b py-4">
-          <Text className="text-lg font-bold">LOGS</Text>
-          <TouchableOpacity onPress={() => setLogs([])}>
-            <Text className="text-purple-500">Clear all</Text>
-          </TouchableOpacity>
-        </View>
-        {logs.map(log => (
-          <View key={log.id} className="flex-row justify-between items-center border-b py-4">
-            {/* Wrapper untuk ID dan data */}
-            <View className="flex-1 flex-row items-center">
-              {/* ID */}
-              <Text className="text-3xl font-extrabold mr-4">{log.id}</Text>
-
-              {/* Data */}
-              <View>
-                <Text>Temperature: {log.temperature}°C</Text>
-                <Text>Humidity: {log.humidity}%</Text>
-                <Text>Light Intensity: {log.lightIntensity} Lux</Text>
-                <Text className="text-gray-400 text-sm">{log.timeStamp}</Text>
-              </View>
-            </View>
-
-            {/* Value */}
-            <Text className={`text-4xl font-bold ${log.color}`}>{log.value}</Text>
+      <View className="container flex-1 bg-[#F7FBFF]">
+        <View className="w-full max-w-md px-4">
+          <View className="flex-row justify-between items-center border-b py-4">
+            <Text className="text-2xl font-extrabold text-purple-600">LOGS</Text>
+            <TouchableOpacity onPress={() => setLogs([])}>
+              <Text className="text-purple-500">Clear all</Text>
+            </TouchableOpacity>
           </View>
-        ))}
-      </ScrollView>
+          <ScrollView className="mb-20">
+            {logs.map(log => (
+              <View key={log.id} className="flex-row justify-between items-center border-b py-4">
+                {/* Wrapper untuk ID dan data */}
+                <View className="flex-1 flex-row items-center">
+                  {/* ID */}
+                  <Text className="text-3xl font-extrabold mr-4 text-purple-400">{log.id}</Text>
+
+                  {/* Data */}
+                  <View>
+                    <Text>Temperature: {log.temperature}°C</Text>
+                    <Text>Humidity: {log.humidity}%</Text>
+                    <Text>Light Intensity: {log.lightIntensity} Lux</Text>
+                    <Text className="text-gray-400 text-sm">{log.timeStamp}</Text>
+                  </View>
+                </View>
+
+                {/* Value */}
+                <Text className={`text-4xl font-bold ${log.color}`}>{log.value}</Text>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
     </>
   );
 };
