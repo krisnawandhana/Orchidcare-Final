@@ -3,11 +3,12 @@
 import { supabase } from '../lib/supabase';
 
 // Fetch temperature data
-export const fetchTemperatureData = async () => {
+export const fetchTemperatureData = async (individuId) => {
   try {
     const { data, error } = await supabase
       .from('data_table')
       .select('temperature, time_stamp')
+      .eq('individu_id', individuId)  // Menambahkan filter berdasarkan individu_id
       .order('time_stamp', { ascending: true }); // Ambil data secara berurutan berdasarkan waktu
 
     if (error) throw error;
@@ -15,10 +16,7 @@ export const fetchTemperatureData = async () => {
     // Map data untuk format yang dibutuhkan
     const mappedData = data.map(item => ({
       value: item.temperature,
-      label: new Date(item.time_stamp).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
+      label: item.time_stamp,  // Gunakan time_stamp langsung tanpa konversi
     }));
 
     return mappedData;
@@ -29,11 +27,12 @@ export const fetchTemperatureData = async () => {
 };
 
 // Fetch humidity data
-export const fetchHumidityData = async () => {
+export const fetchHumidityData = async (individuId) => {
   try {
     const { data, error } = await supabase
       .from('data_table')
       .select('humidity, time_stamp')
+      .eq('individu_id', individuId)  // Menambahkan filter berdasarkan individu_id
       .order('time_stamp', { ascending: true }); // Ambil data secara berurutan berdasarkan waktu
 
     if (error) throw error;
@@ -41,10 +40,7 @@ export const fetchHumidityData = async () => {
     // Map data untuk format yang dibutuhkan
     const mappedData = data.map(item => ({
       value: item.humidity,
-      label: new Date(item.time_stamp).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
+      label: item.time_stamp,  // Gunakan time_stamp langsung tanpa konversi
     }));
 
     return mappedData;
@@ -55,11 +51,12 @@ export const fetchHumidityData = async () => {
 };
 
 // Fetch light intensity data
-export const fetchLightIntensityData = async () => {
+export const fetchLightIntensityData = async (individuId) => {
   try {
     const { data, error } = await supabase
       .from('data_table')
       .select('light_intensity, time_stamp')
+      .eq('individu_id', individuId)  // Menambahkan filter berdasarkan individu_id
       .order('time_stamp', { ascending: true }); // Ambil data secara berurutan berdasarkan waktu
 
     if (error) throw error;
@@ -67,10 +64,7 @@ export const fetchLightIntensityData = async () => {
     // Map data untuk format yang dibutuhkan
     const mappedData = data.map(item => ({
       value: item.light_intensity,
-      label: new Date(item.time_stamp).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
+      label: item.time_stamp,  // Gunakan time_stamp langsung tanpa konversi
     }));
 
     return mappedData;

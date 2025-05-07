@@ -1,196 +1,292 @@
-import React, { useState, useEffect, useRef  } from "react";
-import { View, Text, TextInput, Image, ScrollView } from "react-native";
-import { supabase } from "../../lib/supabase";
-import { calculateFuzzyScore } from "../../constants/fuzzyLogic";
+// app/(tabs)/homepage.jsx
+import React, { useEffect, useState } from 'react';
+import { View, Text, ScrollView, Image } from 'react-native';
+import { useSelector, useDispatch } from 'react-redux';
+import { supabase, subscribeToDataTable  } from '../../lib/supabase';
+import { calculateFuzzyScore } from '../../constants/fuzzyLogic';
 import * as Notifications from 'expo-notifications';
-import { initializeNotifications } from "../../lib/notification";
-import { sendNotification } from "../../constants/fetchNotif";
-import { useRealtimeSubscription } from "../../hook/useRealtimeSubscription";
-import OverallGrowthChart from "../../components/charts/OverallGrowthChart";
-
+import { initializeNotifications } from '../../lib/notification';
+import { sendNotification } from '../../constants/fetchNotif';
+import { useRealtimeSubscription } from '../../hook/useRealtimeSubscription';
+import OverallGrowthChart from '../../components/charts/OverallGrowthChart';
+import { setLatestData, setFuzzyScore, setLogs, setIndividuId  } from '../features/homepageSlice';
+import { fetchHumidityData } from '../../constants/fetchData';
+import { fetchLightIntensityData } from '../../constants/fetchData';
+import { fetchTemperatureData } from '../../constants/fetchData';
+import DropdownMenu from '../../components/DropdownMenu';
+import { fetchLatestData } from '../../constants/fetchLatestData';
 
 initializeNotifications();
-
+  
 const Homepage = () => {
-  const [latestData, setLatestData] = useState(null);
-  const [fuzzyScore, setFuzzyScore] = useState(null);
+  const dispatch = useDispatch();
+  const latestData = useSelector((state) => state.homepage.latestData);
+  const fuzzyScore = useSelector((state) => state.homepage.fuzzyScore);
+  const individuId = useSelector((state) => state.homepage.individuId);
+  const [notified, setNotified] = useState(false);
+  const [Cards, setCards] = useState(null);
+
+  const orchidVariants = Array.from({ length: 30 }, (_, index) => ({
+    label: `Individu Anggrek ${index + 1}`,
+    value: index + 1, // Pastikan ini berupa angka
+  }));
+  
 
   const fetchDataFromSupabase = async () => {
     try {
       const { data, error } = await supabase
         .from('data_table')
         .select('id, temperature, humidity, light_intensity, time_stamp')
-        .order('time_stamp', { ascending: false }) // Mengurutkan berdasarkan time_stamp yang terbaru
-        .limit(1); // Ambil hanya 1 entri terbaru
-  
+        .eq('individu_id', individuId)
+        .order('time_stamp', { ascending: false })
+        .limit(1);
+
       if (error) throw error;
-      return data[0]; // Return data terbaru
+      return data[0];
     } catch (error) {
       console.error('Error fetching data from Supabase:', error.message);
       return null;
     }
-
   };
 
-  const scheduleNotification = async (title, body, seconds = 1) => {
-    const identifier = await Notifications.scheduleNotificationAsync({
-      content: { title, body },
-      trigger: { seconds },
-    });
-    return identifier;
+  const fetchLogsData = async () => {
+    if (!individuId) return;
+
+    try {
+      const [temperatureData, humidityData, lightIntensityData] = await Promise.all([
+        fetchTemperatureData(individuId),
+        fetchHumidityData(individuId),
+        fetchLightIntensityData(individuId),
+      ]);
+
+      if (!temperatureData.length || !humidityData.length || !lightIntensityData.length) {
+        // console.log("Data not complete for individuId:", individuId);
+        return;
+      }
+
+      const combinedLogs = temperatureData.map((temp, index) => {
+        const humidity = humidityData[index]?.value || 0;
+        const lightIntensity = lightIntensityData[index]?.value || 0;
+        const fuzzyScore = calculateFuzzyScore(temp.value, humidity, lightIntensity);
+        const color =
+          fuzzyScore >= 60 ? 'text-green-500' : fuzzyScore >= 40 ? 'text-yellow-400' : 'text-red-500';
+
+        return {
+          id: index + 1,
+          temperature: temp.value,
+          humidity,
+          lightIntensity,
+          value: fuzzyScore.toFixed(2),
+          color,
+          timeStamp: temp.label,
+          individu_id: individuId,
+        };
+      });
+
+      // console.log("Logs data before dispatch:", combinedLogs);
+      dispatch(setLogs(combinedLogs));
+    } catch (error) {
+      console.error('Error fetching logs data:', error.message);
+    }
+  };
+
+  const scheduleNotification = async (title, body) => {
+    if (!notified) {
+      await Notifications.scheduleNotificationAsync({
+        content: { title, body },
+        trigger: { seconds: 1 },
+      });
+      setNotified(true);
+  
+      setTimeout(() => setNotified(false), 60000); // Reset setelah 1 menit
+    }
   };
 
   const getData = async () => {
+    if (!individuId) return;
+
     const data = await fetchDataFromSupabase();
-    setLatestData(data); // Set data terbaru ke state
+    dispatch(setLatestData(data)); // Set data terbaru ke Redux store
     
-    if(data){
+    const cardData = await fetchLatestData(individuId);
+    setCards(cardData);
+    console.log("Latest data:", cardData);
+
+    if (data) {
+      const thresholds = [individuId];
+
       const score = calculateFuzzyScore(
-          data.temperature, 
-          data.humidity, 
-          data.light_intensity
-        );
-        setFuzzyScore(score); // Set fuzzy score ke state
-        
-        if (score < 50) {
-          const title = "Growth Alert!";
-          const body = `Fuzzy score is low (${score.toFixed(2)}%). Check your plant's condition.`;
-          scheduleNotification(title, body);
-          
-          const message = body; // Gunakan body sebagai pesan
-          console.log("Sending notification:", message);
-          const result = await sendNotification(message);
-          
-          if (result) {
-            console.log("Notification saved to database:", result);
-          } else {
-            console.error("Failed to save notification to database.");
-          }
+        data.temperature,
+        data.humidity,
+        data.light_intensity,
+        thresholds
+      );
+      dispatch(setFuzzyScore(score)); // Set fuzzy score ke Redux store
+
+      if (score < 40) {
+        const title = "Growth Alert!";
+        const body = `Fuzzy score is low (${score.toFixed(2)}%). Check your plant's condition.`;
+        scheduleNotification(title, body);
+
+        const message = body;
+        console.log("Sending notification:", message);
+        const result = await sendNotification(message);
+
+        if (result) {
+          console.log("Notification saved to database:", result);
+        } else {
+          console.error("Failed to save notification to database.");
         }
       }
-    };
-    
-    // Berlangganan ke perubahan tabel Supabase
-    useRealtimeSubscription(() => getData());
-    
+    }
+  };
+
+  // Berlangganan ke perubahan tabel Supabase
+  useRealtimeSubscription(() => {
+    if (individuId) {
+      getData();
+      fetchLogsData();
+    }
+  });
+
   useEffect(() => {
-    getData();
-    
-  }, []);
+    if (individuId) {
+      getData();
+      fetchLogsData(); // Pastikan logs diperbarui sesuai anggrek yang dipilih
+    }
+
+    const unsubscribe = subscribeToDataTable(() => {
+      getData();
+      fetchLogsData();
+    });
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe(); // Pastikan unsubscribe dipanggil
+      }
+    };
+  }, [individuId]);
 
   return (
     <ScrollView className="container bg-[#F7FBFF]">
-        {/* Header */}
-        <View className="flex-row justify-left items-center mt-4">
-          <View className="flex-row items-center">
-            <Image
-              source={require("../../assets/profile/profile.png")}
-              className="w-14 h-14 rounded-full"
-            />
-          </View>
-          <View className="mx-4">
-            <Text className=" text-purple-600 text-xl font-semibold">Hi, Tari</Text>
-            <Text className="text-purple-600 text-sm">Welcome to Orchidcare</Text>
-          </View>
-        </View>
-
-
-        {/* Search Bar */}
-        <View className="mt-6 bg-white flex-row items-center rounded-full px-4 py-2 shadow-md">
-          <TextInput
-            placeholder="Search..."
-            className="flex-1 text-gray-600"
-          />
-        </View>
-
-        {/* Recent Updates */}
-        <View className="flex-row justify-between items-center my-4">
-          <Text className="text-purple-600 text-lg font-bold">
-            Recent Updates
-          </Text>
-          <Text className="text-purple-600 text-lg font-semibold">
-            {latestData ? 
-            new Intl.DateTimeFormat('en-US', { 
-                weekday: 'short', 
-                month: 'short', 
-                day: '2-digit', 
-                year: 'numeric', 
-                hour: '2-digit', 
-                minute: '2-digit',
-                hour12: true // optional: set to false for 24-hour format
-              }).format(new Date(latestData.time_stamp)) 
-            : "Loading..."}
-          </Text>
-        </View>
-        <View className="flex-row justify-between h-36">
-          {/* Temperature */}
-          <View className="bg-white rounded-lg shadow-md p-4 w-26 items-center">
-            <Image
-              source={require("../../assets/homepage/temperature.png")}
-              className="w-16 h-16"
-            />
-            <View className="mt-2 items-center">
-              <Text className="text-md font-bold text-gray-600">Temp</Text>
-              <Text className="text-md font-medium text-gray-600">{latestData ? `${latestData.temperature}°C` : 'Loading...'}</Text>
-            </View>
-          </View>
-          {/* Humidity */}
-          <View className="bg-white rounded-lg shadow-md p-4 w-26 items-center">
-            <Image
-              source={require("../../assets/homepage/humidity.png")}
-              className="w-16 h-16 my-auto"
-            />
-            <View className="items-center">
-              <Text className="text-md font-bold text-gray-600">Humidity</Text>
-              <Text className="text-md font-medium text-gray-600">{latestData ? `${latestData.humidity}%` : 'Loading...'}</Text>
-            </View>
-          </View>
-          {/* Light Intensity */}
-          <View className="bg-white rounded-lg shadow-md p-4 w-26 items-center">
-            <Image
-              source={require("../../assets/homepage/light_intensity.png")}
-              className="w-16 h-16"
-            />
-            <View className="mt-2 items-center">
-              <Text className="text-md font-bold text-gray-600">Light</Text>
-              <Text className="text-md font-medium text-gray-600">{latestData ? `${latestData.light_intensity} Lux` : 'Loading...'}</Text>
-            </View>
-          </View>
-          {/* Logs */}
-          <View className="bg-white rounded-lg shadow-md p-4 w-26 items-center">
-            <Image
-              source={require("../../assets/homepage/growth_score.png")}
-              className="w-16 h-16"
-            />
-            <View className="mt-2 items-center">
-              <Text className="text-md font-bold text-gray-600">Score</Text>
-              <Text className="text-md font-medium text-gray-600">{fuzzyScore !== null ? `${fuzzyScore.toFixed(2)}%` : "Loading..."}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Banner */}
-        <View className="relative mt-6 bg-white rounded-lg shadow-md">
+      {/* Header */}
+      <View className="flex-row justify-left items-center mt-4">
+        <View className="flex-row items-center">
           <Image
-            source={require("../../assets/homepage/orchid-img.png")}
-            className="w-full h-48 rounded-lg"
+            source={require("../../assets/profile/profile.png")}
+            className="w-14 h-14 rounded-full"
           />
-          {/* Teks di atas gambar */}
-          <View className="absolute inset-0 flex justify-center items-start mx-4">
-            <Text className="text-violet-600 text-2xl font-bold mr-40">
-              Take care of your plants
-            </Text>
-            <Text className="text-slate-400 text-md font-normal mr-40 my-2">
-              Lorem ipsum dolor sit amet, consectetur adipisicing elit.
-            </Text>
+        </View>
+        <View className="mx-4">
+          <Text className=" text-purple-600 text-xl font-semibold">Hi, Tari</Text>
+          <Text className="text-purple-600 text-sm">Welcome to Orchidcare</Text>
+        </View>
+      </View>
+
+      {/* Dropdown Menu */}
+      <View className="mt-6 bg-white rounded-full shadow-md px-4 py-2">
+      <DropdownMenu
+          data={orchidVariants}
+          selectedValue={individuId}
+          onSelect={(value) => {
+            dispatch(setIndividuId(value)); // Simpan individu yang dipilih di Redux
+          }}
+          placeholder="Pilih Individu Anggrek..."
+        />
+      </View>
+
+      {/* Recent Updates */}
+      <View className="flex-row justify-between items-center my-4">
+        <Text className="text-purple-600 text-lg font-bold">
+          Recent Updates
+        </Text>
+        <Text className="text-purple-600 text-lg font-semibold">
+          {Cards ?
+            new Intl.DateTimeFormat('en-US', {
+              weekday: 'short',
+              month: 'short',
+              day: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+            }).format(new Date(Cards.time_stamp))
+            : "Loading..."}
+        </Text>
+      </View>
+
+      {/* Data Cards */}
+      <View className="flex-row justify-between h-36">
+        {/* Temperature */}
+        <View className="bg-white rounded-lg shadow-md p-4 w-26 items-center">
+          <Image
+            source={require("../../assets/homepage/temperature.png")}
+            className="w-16 h-16"
+          />
+          <View className="mt-2 items-center">
+            <Text className="text-md font-bold text-gray-600">Temp</Text>
+            <Text className="text-md font-medium text-gray-600">{Cards ? `${Cards.temperature}°C` : 'Loading...'}</Text>
           </View>
         </View>
 
-        {/* Growth Graph */}
-        <View className="mb-6">
-          <Text className="text-purple-600 text-lg font-bold my-4">Growth Graph</Text>
-          <OverallGrowthChart />
+        {/* Humidity */}
+        <View className="bg-white rounded-lg shadow-md p-4 w-26 items-center">
+          <Image
+            source={require("../../assets/homepage/humidity.png")}
+            className="w-16 h-16 my-auto"
+          />
+          <View className="items-center">
+            <Text className="text-md font-bold text-gray-600">Humidity</Text>
+            <Text className="text-md font-medium text-gray-600">{Cards ? `${Cards.humidity}%` : 'Loading...'}</Text>
+          </View>
         </View>
+
+        {/* Light Intensity */}
+        <View className="bg-white rounded-lg shadow-md p-4 w-26 items-center">
+          <Image
+            source={require("../../assets/homepage/light_intensity.png")}
+            className="w-16 h-16"
+          />
+          <View className="mt-2 items-center">
+            <Text className="text-md font-bold text-gray-600">Light</Text>
+            <Text className="text-md font-medium text-gray-600">{Cards ? `${Cards.light_intensity} Lux` : 'Loading...'}</Text>
+          </View>
+        </View>
+
+        {/* Logs */}
+        <View className="bg-white rounded-lg shadow-md p-4 w-26 items-center">
+          <Image
+            source={require("../../assets/homepage/growth_score.png")}
+            className="w-16 h-16"
+          />
+          <View className="mt-2 items-center">
+            <Text className="text-md font-bold text-gray-600">Score</Text>
+            <Text className="text-md font-medium text-gray-600">{Cards ? `${Cards.fuzzyScore.toFixed(2)}%` : "Loading..."}</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Banner */}
+      <View className="relative mt-6 bg-white rounded-lg shadow-md">
+        <Image
+          source={require("../../assets/homepage/orchid-img.png")}
+          className="w-full h-48 rounded-lg"
+        />
+        <View className="absolute inset-0 flex justify-center items-start mx-4">
+          <Text className="text-violet-600 text-2xl font-bold mr-40">
+            Take care of your plants
+          </Text>
+          <Text className="text-slate-400 text-md font-normal mr-40 my-2">
+            Lorem ipsum dolor sit amet, consectetur adipisicing elit.
+          </Text>
+        </View>
+      </View>
+
+      {/* Growth Graph */}
+      <View className="mb-6">
+        <Text className="text-purple-600 text-lg font-bold my-4">Growth Graph</Text>
+        <OverallGrowthChart selectedOrchid={individuId}/>
+      </View>
     </ScrollView>
   );
 };

@@ -1,73 +1,169 @@
-const TEMPERATURE_THRESHOLD = 23;
-const TEMPERATURE_THRESHOLD_HIGH = 29;
-const HUMIDITY_THRESHOLD = 50;
-const HUMIDITY_THRESHOLD_HIGH = 70;
-const LIGHT_INTENSITY_THRESHOLD = 150;
-const LIGHT_INTENSITY_THRESHOLD_HIGH = 500;
+const orchidThresholds = {
+  phalaenopsis: {
+    TEMPERATURE_LOW: 18,
+    TEMPERATURE_HIGH: 28,
+    HUMIDITY_LOW: 60,
+    HUMIDITY_HIGH: 75,
+    LIGHT_LOW: 12000,
+    LIGHT_HIGH: 20000,
+  },
+};
 
-const temperatureFuzzy = (temperature) => {
+const triangularMF = (x, a, b, c) => {
+  if (x <= a) return a === b ? 1 : 0;  // Jika x lebih kecil dari a, pastikan low tetap 1 jika a = b
+  if (x >= c) return c === b ? 1 : 0;  // Jika x lebih besar dari c, pastikan high tetap 1 jika c = b
+  if (x < b) return (x - a) / (b - a);
+  return (c - x) / (c - b);
+};
+
+// Fungsi keanggotaan untuk suhu, kelembapan, dan intensitas cahaya
+const temperatureFuzzy = (temperature, { TEMPERATURE_LOW, TEMPERATURE_HIGH }) => {
+  const mid = (TEMPERATURE_LOW + TEMPERATURE_HIGH) / 2;
   return {
-    cold: temperature <= TEMPERATURE_THRESHOLD ? 1 : temperature < TEMPERATURE_THRESHOLD + 2 ? (TEMPERATURE_THRESHOLD + 2 - temperature) / 2 : 0,
-    normal: temperature >= TEMPERATURE_THRESHOLD && temperature <= TEMPERATURE_THRESHOLD_HIGH
-      ? (TEMPERATURE_THRESHOLD_HIGH - Math.abs(temperature - (TEMPERATURE_THRESHOLD + (TEMPERATURE_THRESHOLD_HIGH - TEMPERATURE_THRESHOLD) / 2))) / 3
-      : 0,
-    hot: temperature >= TEMPERATURE_THRESHOLD_HIGH ? (temperature - TEMPERATURE_THRESHOLD_HIGH) / 5 : 0,
+    low: temperature <= TEMPERATURE_LOW ? 1 : triangularMF(temperature, TEMPERATURE_LOW - 2, TEMPERATURE_LOW, mid),
+    optimal: triangularMF(temperature, TEMPERATURE_LOW, mid, TEMPERATURE_HIGH),
+    high: temperature >= TEMPERATURE_HIGH ? 1 : triangularMF(temperature, mid, TEMPERATURE_HIGH, TEMPERATURE_HIGH + 2),
   };
 };
 
-const humidityFuzzy = (humidity) => {
+const humidityFuzzy = (humidity, { HUMIDITY_LOW, HUMIDITY_HIGH }) => {
+  const mid = (HUMIDITY_LOW + HUMIDITY_HIGH) / 2;
   return {
-    low: humidity <= HUMIDITY_THRESHOLD ? 1 : humidity < HUMIDITY_THRESHOLD + 10 ? (HUMIDITY_THRESHOLD + 10 - humidity) / 10 : 0,
-    medium: humidity >= HUMIDITY_THRESHOLD && humidity <= HUMIDITY_THRESHOLD_HIGH
-      ? (HUMIDITY_THRESHOLD_HIGH - Math.abs(humidity - (HUMIDITY_THRESHOLD + (HUMIDITY_THRESHOLD_HIGH - HUMIDITY_THRESHOLD) / 2))) / 25
-      : 0,
-    high: humidity >= HUMIDITY_THRESHOLD_HIGH ? (humidity - HUMIDITY_THRESHOLD_HIGH) / 20 : 0,
+    low: humidity <= HUMIDITY_LOW ? 1 : triangularMF(humidity, HUMIDITY_LOW - 5, HUMIDITY_LOW, mid),
+    optimal: triangularMF(humidity, HUMIDITY_LOW, mid, HUMIDITY_HIGH),
+    high: humidity >= HUMIDITY_HIGH ? 1 : triangularMF(humidity, mid, HUMIDITY_HIGH, HUMIDITY_HIGH + 5),
   };
 };
 
-const lightIntensityFuzzy = (lightIntensity) => {
+const lightIntensityFuzzy = (lightIntensity, { LIGHT_LOW, LIGHT_HIGH }) => {
+  const mid = (LIGHT_LOW + LIGHT_HIGH) / 2;
   return {
-    dim: lightIntensity <= LIGHT_INTENSITY_THRESHOLD ? 1 : lightIntensity < LIGHT_INTENSITY_THRESHOLD + 50 ? (LIGHT_INTENSITY_THRESHOLD + 50 - lightIntensity) / 50 : 0,
-    optimal: lightIntensity >= LIGHT_INTENSITY_THRESHOLD && lightIntensity <= LIGHT_INTENSITY_THRESHOLD_HIGH
-      ? (LIGHT_INTENSITY_THRESHOLD_HIGH - Math.abs(lightIntensity - (LIGHT_INTENSITY_THRESHOLD + (LIGHT_INTENSITY_THRESHOLD_HIGH - LIGHT_INTENSITY_THRESHOLD) / 2))) / 350
-      : 0,
-    bright: lightIntensity >= LIGHT_INTENSITY_THRESHOLD_HIGH ? (lightIntensity - LIGHT_INTENSITY_THRESHOLD_HIGH) / 200 : 0,
+    low: lightIntensity <= LIGHT_LOW ? 1 : triangularMF(lightIntensity, LIGHT_LOW - 1000, LIGHT_LOW, mid),
+    optimal: triangularMF(lightIntensity, LIGHT_LOW, mid, LIGHT_HIGH),
+    high: lightIntensity >= LIGHT_HIGH ? 1 : triangularMF(lightIntensity, mid, LIGHT_HIGH, LIGHT_HIGH + 1000),
   };
 };
 
-const fuzzyRules = (temperature, humidity, lightIntensity) => {
-  const temp = temperatureFuzzy(temperature);
-  const hum = humidityFuzzy(humidity);
-  const light = lightIntensityFuzzy(lightIntensity);
+// Aturan fuzzy berdasarkan kondisi
+const fuzzyRules = (temperature, humidity, lightIntensity, thresholds) => {
+  // Hitung nilai fuzzy untuk setiap parameter
+  const temp = temperatureFuzzy(temperature, thresholds);
+  const hum = humidityFuzzy(humidity, thresholds);
+  const light = lightIntensityFuzzy(lightIntensity, thresholds);
 
-  const safeMax = (...values) => Math.max(...values.filter((v) => !isNaN(v)));
-  const safeMin = (...values) => Math.min(...values.filter((v) => !isNaN(v)));
+  // Fungsi untuk mencari nilai minimum yang valid (> 0)
+  const safeMin = (...values) => {
+    const valid = values.filter((v) => v > 0);
+    return valid.length ? Math.min(...valid) : 0;
+  };
 
-  const excellentGrowth = 0.9 * safeMin(temp.normal, hum.medium, light.optimal);
-  const moderateGrowth = safeMax(
-    safeMin(temp.normal, hum.medium, light.optimal * 0.5),
-    safeMin(temp.normal, hum.medium, light.bright * 0.5),
-    safeMin(temp.normal, hum.high, light.optimal * 0.5)
+  // **1. High Growth**
+  const highGrowth = Math.max(
+    safeMin(temp.optimal, hum.optimal, light.optimal),
+    safeMin(temp.optimal, hum.optimal, light.high),
+    safeMin(temp.optimal, hum.high, light.optimal),
+    safeMin(temp.high, hum.optimal, light.optimal)
   );
-  const poorGrowth = safeMax(temp.cold, hum.low, light.dim);
 
-  return { poorGrowth, moderateGrowth, excellentGrowth };
+  // **2. Moderate Growth**
+  const moderateGrowth = (highGrowth === 1)
+    ? 0  // Jika highGrowth sudah 1, moderateGrowth tidak bisa terjadi
+    : Math.max(
+        safeMin(temp.optimal, hum.low, light.high),
+        safeMin(temp.high, hum.low, light.high),
+        safeMin(temp.high, hum.high, light.low),
+        safeMin(temp.optimal, hum.optimal, light.low),
+        safeMin(temp.low, hum.high, light.optimal)
+      );
+
+  // **3. Low Growth**
+  const lowGrowth = Math.max(
+        safeMin(temp.low, hum.low, light.low),
+        safeMin(temp.high, hum.high, light.high)
+      );
+
+  // **4. Stressed Growth**
+  const stressedGrowth = Math.min(temp.high, hum.low);
+
+  // **5. Dormant Growth**
+  const dormantGrowth = Math.min(temp.low, Math.max(hum.optimal, light.low));
+
+  return { lowGrowth, moderateGrowth, highGrowth, stressedGrowth, dormantGrowth };
 };
 
+
+// Fungsi Defuzzifikasi
 const defuzzify = (fuzzyValues) => {
-  const { poorGrowth, moderateGrowth, excellentGrowth } = fuzzyValues;
-  const scores = { poorGrowth: 20, moderateGrowth: 60, excellentGrowth: 100 };
+  // Ambil nilai keanggotaan dari fuzzyValues
+  const { lowGrowth, moderateGrowth, highGrowth, stressedGrowth, dormantGrowth } = fuzzyValues;
 
-  const numerator =
-    poorGrowth * scores.poorGrowth +
-    moderateGrowth * scores.moderateGrowth +
-    excellentGrowth * scores.excellentGrowth;
+  // Skor untuk setiap kategori pertumbuhan
+  const scores = { 
+    lowGrowth: 20, 
+    moderateGrowth: 60, 
+    highGrowth: 100,
+    stressedGrowth: 40, 
+    dormantGrowth: 10 
+  };
 
-  const denominator = poorGrowth + moderateGrowth + excellentGrowth;
-  return denominator === 0 ? scores.poorGrowth : numerator / denominator;
+  // Hitung pembilang (Σ μ(x) * skor)
+  const numerator = (
+    (lowGrowth * scores.lowGrowth) +
+    (moderateGrowth * scores.moderateGrowth) +
+    (highGrowth * scores.highGrowth) +
+    (stressedGrowth * scores.stressedGrowth) +
+    (dormantGrowth * scores.dormantGrowth)
+  );
+
+  // Hitung penyebut (Σ μ(x))
+  const denominator = lowGrowth + moderateGrowth + highGrowth + stressedGrowth + dormantGrowth;
+  // console.log("denominator",denominator);
+
+  // Cegah pembagian oleh nol
+  const result = denominator === 0 ? scores.lowGrowth : numerator / denominator;
+
+  return result;
 };
 
-export const calculateFuzzyScore = (temperature, humidity, lightIntensity) => {
-  const fuzzyValues = fuzzyRules(temperature, humidity, lightIntensity);
-  return defuzzify(fuzzyValues);
+
+// Fungsi utama
+export const calculateFuzzyScore = (temperature, humidity, lightIntensity, orchidType) => { 
+  const thresholds = orchidThresholds[orchidType] || orchidThresholds.phalaenopsis;
+
+  const tempFuzzy = temperatureFuzzy(temperature, thresholds);
+  const humFuzzy = humidityFuzzy(humidity, thresholds);
+  const lightFuzzy = lightIntensityFuzzy(lightIntensity, thresholds);
+
+  // console.log("=== Fuzzifikasi ===");
+  // console.log("Temperature:", temperature);
+  // console.log("  → Low:", tempFuzzy.low.toFixed(2), "Optimal:", tempFuzzy.optimal.toFixed(2), "High:", tempFuzzy.high.toFixed(2));
+  // console.log("Humidity:", humidity);
+  // console.log("  → Low:", humFuzzy.low.toFixed(2), "Optimal:", humFuzzy.optimal.toFixed(2), "High:", humFuzzy.high.toFixed(2));
+  // console.log("Light Intensity:", lightIntensity);
+  // console.log("  → Low:", lightFuzzy.low.toFixed(2), "Optimal:", lightFuzzy.optimal.toFixed(2), "High:", lightFuzzy.high.toFixed(2));
+
+  const fuzzyValues = fuzzyRules(temperature, humidity, lightIntensity, thresholds);
+
+  // console.log("\n=== Nilai Fuzzy Output ===");
+  // console.log("Low Growth:", fuzzyValues.lowGrowth.toFixed(2));
+  // console.log("Moderate Growth:", fuzzyValues.moderateGrowth.toFixed(2));
+  // console.log("High Growth:", fuzzyValues.highGrowth.toFixed(2));
+  // console.log("Stressed Growth:", fuzzyValues.stressedGrowth.toFixed(2));
+  // console.log("Dormant Growth:", fuzzyValues.dormantGrowth.toFixed(2));
+  // console.log("Numerator:", (fuzzyValues.lowGrowth * 20 + fuzzyValues.moderateGrowth * 60 + fuzzyValues.highGrowth * 100 + fuzzyValues.stressedGrowth * 40 + fuzzyValues.dormantGrowth * 10).toFixed(2));
+  // console.log("Denominator:", fuzzyValues.lowGrowth + fuzzyValues.moderateGrowth + fuzzyValues.highGrowth + fuzzyValues.stressedGrowth + fuzzyValues.dormantGrowth);
+
+  const score = defuzzify(fuzzyValues);
+  
+  // console.log("\n=== Defuzzifikasi ===");
+  // console.log("Fuzzy Score:", score.toFixed(2));
+  // console.log("========================\n");
+
+  return score;
 };
+
+
+// Contoh penggunaan
+// console.log(calculateFuzzyScore(27.54,	64.39,	17766.81, 'phalaenopsis')); // 60
+// console.log(calculateFuzzyScore(28.75,	67.62,	17714.68, 'phalaenopsis'));
+// console.log(calculateFuzzyScore(27.73,	66.07,	16952.96, 'phalaenopsis'));

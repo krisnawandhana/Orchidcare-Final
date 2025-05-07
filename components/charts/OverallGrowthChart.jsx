@@ -1,49 +1,44 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text } from 'react-native';
 import { LineChart } from 'react-native-gifted-charts';
-import { fetchHumidityData, fetchLightIntensityData, fetchTemperatureData } from '../../constants/fetchData';
-import { calculateFuzzyScore } from '../../constants/fuzzyLogic';
+import { useSelector } from 'react-redux';
 
 const OverallGrowthChart = () => {
+  const Logs = useSelector(state => state.homepage.logs);
+  const individuId = useSelector(state => state.homepage.individuId);
+
   const [growthScores, setGrowthScores] = useState([]);
   const [xAxisLabels, setXAxisLabels] = useState([]);
 
-  const fetchDataAndCalculateFuzzyScores = async () => {
-    try {
-      const [temperatureData, humidityData, lightIntensityData] = await Promise.all([
-        fetchTemperatureData(),
-        fetchHumidityData(),
-        fetchLightIntensityData(),
-      ]);
-
-      const combinedData = temperatureData.map((temp, index) => {
-        const humidity = humidityData[index]?.value || 0;
-        const lightIntensity = lightIntensityData[index]?.value || 0;
-        const fuzzyScore = calculateFuzzyScore(temp.value, humidity, lightIntensity);
-
-        return { value: fuzzyScore, timestamp: temp.label }; // Assuming temp.label contains time information
-      });
-
-      setGrowthScores(combinedData.map(data => ({ value: Math.round(data.value) })));
-      setXAxisLabels(combinedData.map(data => data.timestamp)); // Use the timestamps as x-axis labels
-    } catch (error) {
-      console.error('Error fetching and processing data:', error);
-    }
-  };
-
   useEffect(() => {
-    fetchDataAndCalculateFuzzyScores();
-  }, []);
+    if (Logs && individuId) {
+      const filtered = Logs
+        .filter(log => log.individu_id === individuId && log.value != null)
+        .sort((a, b) => new Date(a.timeStamp) - new Date(b.timeStamp));
+
+      const scores = filtered.map(item => ({ value: Math.round(item.value) }));
+      const labels = filtered.map((item, index) =>
+        index % 2 === 0 ? item.timeStamp : '' // supaya tidak terlalu padat label-nya
+      );
+
+      setGrowthScores(scores.length > 0 ? scores : [{ value: 0 }]);
+      setXAxisLabels(labels.length > 0 ? labels : ['No Data']);
+    } else {
+      setGrowthScores([{ value: 0 }]);
+      setXAxisLabels(['No Data']);
+    }
+  }, [Logs, individuId]);
 
   return (
     <View className="flex-1 bg-[#F7FBFF] justify-center items-center">
-      <LineChart 
+      <Text className="text-lg font-bold mb-2 text-gray-800">Fuzzy Growth Chart</Text>
+      <LineChart
         areaChart
         curved
         width={300}
         height={200}
-        data={growthScores.length > 0 ? growthScores : [{ value: 0 }]}
-        xAxisLabelTexts={xAxisLabels.length > 0 ? xAxisLabels : ['--']}
+        data={growthScores}
+        xAxisLabelTexts={xAxisLabels}
         spacing={68}
         color1="#9D4EDD"
         startFillColor1="#5A189A"
