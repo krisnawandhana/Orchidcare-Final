@@ -65,17 +65,6 @@ const fuzzyRules = (temperature, humidity, lightIntensity, thresholds) => {
     safeMin(temp.high, hum.optimal, light.optimal)
   );
 
-  // **2. Moderate Growth**
-  const moderateGrowth = (highGrowth === 1)
-    ? 0  // Jika highGrowth sudah 1, moderateGrowth tidak bisa terjadi
-    : Math.max(
-        safeMin(temp.optimal, hum.low, light.high),
-        safeMin(temp.high, hum.low, light.high),
-        safeMin(temp.high, hum.high, light.low),
-        safeMin(temp.optimal, hum.optimal, light.low),
-        safeMin(temp.low, hum.high, light.optimal)
-      );
-
   // **3. Low Growth**
   const lowGrowth = Math.max(
         safeMin(temp.low, hum.low, light.low),
@@ -87,6 +76,16 @@ const fuzzyRules = (temperature, humidity, lightIntensity, thresholds) => {
 
   // **5. Dormant Growth**
   const dormantGrowth = Math.min(temp.low, Math.max(hum.optimal, light.low));
+
+  const moderateGrowth = (highGrowth === 1 || lowGrowth === 1 || dormantGrowth === 1)
+  ? 0
+  : Math.max(
+      safeMin(temp.optimal, hum.low, light.high),
+      safeMin(temp.high, hum.low, light.high),
+      safeMin(temp.high, hum.high, light.low),
+      safeMin(temp.optimal, hum.optimal, light.low),
+      safeMin(temp.low, hum.high, light.optimal)
+    );
 
   return { lowGrowth, moderateGrowth, highGrowth, stressedGrowth, dormantGrowth };
 };
@@ -122,7 +121,7 @@ const defuzzify = (fuzzyValues) => {
   // Cegah pembagian oleh nol
   const result = denominator === 0 ? scores.lowGrowth : numerator / denominator;
 
-  return result;
+  return result.toFixed(2); // Mengembalikan hasil dengan 2 angka desimal
 };
 
 
@@ -134,36 +133,57 @@ export const calculateFuzzyScore = (temperature, humidity, lightIntensity, orchi
   const humFuzzy = humidityFuzzy(humidity, thresholds);
   const lightFuzzy = lightIntensityFuzzy(lightIntensity, thresholds);
 
-  // console.log("=== Fuzzifikasi ===");
-  // console.log("Temperature:", temperature);
-  // console.log("  → Low:", tempFuzzy.low.toFixed(2), "Optimal:", tempFuzzy.optimal.toFixed(2), "High:", tempFuzzy.high.toFixed(2));
-  // console.log("Humidity:", humidity);
-  // console.log("  → Low:", humFuzzy.low.toFixed(2), "Optimal:", humFuzzy.optimal.toFixed(2), "High:", humFuzzy.high.toFixed(2));
-  // console.log("Light Intensity:", lightIntensity);
-  // console.log("  → Low:", lightFuzzy.low.toFixed(2), "Optimal:", lightFuzzy.optimal.toFixed(2), "High:", lightFuzzy.high.toFixed(2));
-
   const fuzzyValues = fuzzyRules(temperature, humidity, lightIntensity, thresholds);
 
-  // console.log("\n=== Nilai Fuzzy Output ===");
-  // console.log("Low Growth:", fuzzyValues.lowGrowth.toFixed(2));
-  // console.log("Moderate Growth:", fuzzyValues.moderateGrowth.toFixed(2));
-  // console.log("High Growth:", fuzzyValues.highGrowth.toFixed(2));
-  // console.log("Stressed Growth:", fuzzyValues.stressedGrowth.toFixed(2));
-  // console.log("Dormant Growth:", fuzzyValues.dormantGrowth.toFixed(2));
-  // console.log("Numerator:", (fuzzyValues.lowGrowth * 20 + fuzzyValues.moderateGrowth * 60 + fuzzyValues.highGrowth * 100 + fuzzyValues.stressedGrowth * 40 + fuzzyValues.dormantGrowth * 10).toFixed(2));
-  // console.log("Denominator:", fuzzyValues.lowGrowth + fuzzyValues.moderateGrowth + fuzzyValues.highGrowth + fuzzyValues.stressedGrowth + fuzzyValues.dormantGrowth);
-
   const score = defuzzify(fuzzyValues);
-  
-  // console.log("\n=== Defuzzifikasi ===");
-  // console.log("Fuzzy Score:", score.toFixed(2));
-  // console.log("========================\n");
 
-  return score;
+  // === Rekomendasi berdasarkan nilai fuzzy ===
+   let recommendation = [];
+
+   // Rekomendasi berdasarkan suhu
+    if (tempFuzzy.low > 0.5) {
+      const tempGap = Math.max(0, thresholds.TEMPERATURE_LOW - temperature);
+      const heatingIntensity = Math.round(tempFuzzy.low * tempGap);
+
+      if (heatingIntensity > 0) {
+        recommendation.push(
+          `Suhu terlalu rendah, tingkatkan suhu sekitar ${heatingIntensity}°C (gunakan pemanas ruangan atau tempatkan tanaman di tempat lebih hangat)`
+        );
+      } else {
+        recommendation.push(
+          `Suhu mendekati batas bawah, pertahankan atau sedikit tingkatkan suhu ruangan (misal hindari angin langsung atau dekatkan ke sumber hangat)`
+        );
+      }
+    } else if (tempFuzzy.high > 0.5) {
+      recommendation.push(
+        "Suhu terlalu tinggi, turunkan suhu lingkungan (hindari sinar matahari langsung, buka ventilasi, atau gunakan kipas)"
+      );
+    }
+
+    // Rekomendasi berdasarkan kelembapan
+  if (humFuzzy.low > 0.1) {
+    const airAmount = Math.round(humFuzzy.low * 600); // 0.0–1.0 mapped to 0–300 ml
+    recommendation.push(`Siramkan air sekitar ${airAmount} ml untuk menaikkan kelembapan`);
+   }
+   else if (humFuzzy.high > 0.5) recommendation.push("Kurangi penyiraman dan tingkatkan ventilasi");
+
+  // Rekomendasi berdasarkan intensitas cahaya
+    if (lightFuzzy.low > 0.5) {
+      const luxDeficit = Math.max(0, thresholds.LIGHT_LOW - lightIntensity);
+      const lightDeficitRatio = lightFuzzy.low;
+      const area = 0.25; // area pot (m²)
+      const extraLumenNeeded = Math.round(luxDeficit * area);
+      const estimatedHours = Math.round(lightDeficitRatio * 12);
+
+      if (extraLumenNeeded > 0) {
+        recommendation.push(`Tambahkan pencahayaan sebesar ±${extraLumenNeeded} lumen (misal pasang 1-2 lampu LED tambahan atau lebih dekatkan lampu) selama ${estimatedHours} jam`);
+      } else if (estimatedHours >= 1) {
+        recommendation.push(`Perpanjang durasi pencahayaan selama ${estimatedHours} jam dengan sumber cahaya yang ada (misal tempatkan dekat jendela atau nyalakan lampu lebih lama)`);
+      }
+    }
+
+  return {
+    score, 
+    recommendation
+  }
 };
-
-
-// Contoh penggunaan
-// console.log(calculateFuzzyScore(27.54,	64.39,	17766.81, 'phalaenopsis')); // 60
-// console.log(calculateFuzzyScore(28.75,	67.62,	17714.68, 'phalaenopsis'));
-// console.log(calculateFuzzyScore(27.73,	66.07,	16952.96, 'phalaenopsis'));
