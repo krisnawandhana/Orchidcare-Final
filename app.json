@@ -20,13 +20,22 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#9D4EDD"
-      }
+      },
+      "package": "com.krisnawandhana.OrchidcareFinal"
     },
     "web": {
       "favicon": "./assets/logo.png"
     },
     "plugins": [
       "expo-router"
-    ]
+    ],
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "0d10bdf4-f6cd-47df-b477-7ecec725e521"
+      }
+    }
   }
 }

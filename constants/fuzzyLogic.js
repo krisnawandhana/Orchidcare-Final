@@ -9,121 +9,120 @@ const orchidThresholds = {
   },
 };
 
+export const fuzzyRuleBase = [
+  // 🔴 SANGAT BURUK
+  { temp: 'low', hum: 'low', light: 'high', growth: 'stressedGrowth' },
+  { temp: 'high', hum: 'low', light: 'high', growth: 'stressedGrowth' },
+  { temp: 'low', hum: 'low', light: 'low', growth: 'stressedGrowth' },
+  { temp: 'high', hum: 'high', light: 'high', growth: 'stressedGrowth' },
+
+  // 🔴 BURUK
+  { temp: 'low', hum: 'optimal', light: 'high', growth: 'lowGrowth' },
+  { temp: 'low', hum: 'high', light: 'high', growth: 'lowGrowth' },
+  { temp: 'optimal', hum: 'low', light: 'high', growth: 'lowGrowth' },
+  { temp: 'high', hum: 'optimal', light: 'high', growth: 'lowGrowth' },
+  { temp: 'high', hum: 'high', light: 'low', growth: 'lowGrowth' },
+
+  // 🟡 SEDANG
+  { temp: 'low', hum: 'optimal', light: 'low', growth: 'moderateGrowth' },
+  { temp: 'low', hum: 'high', light: 'low', growth: 'moderateGrowth' },
+  { temp: 'low', hum: 'low', light: 'optimal', growth: 'moderateGrowth' },
+  { temp: 'low', hum: 'optimal', light: 'optimal', growth: 'moderateGrowth' },
+  { temp: 'low', hum: 'high', light: 'optimal', growth: 'moderateGrowth' },
+  { temp: 'optimal', hum: 'low', light: 'optimal', growth: 'moderateGrowth' },
+  { temp: 'optimal', hum: 'high', light: 'optimal', growth: 'moderateGrowth' },
+  { temp: 'high', hum: 'low', light: 'optimal', growth: 'moderateGrowth' },
+  { temp: 'high', hum: 'optimal', light: 'optimal', growth: 'moderateGrowth' },
+  { temp: 'high', hum: 'high', light: 'optimal', growth: 'moderateGrowth' },
+  
+  // 🟢 OPTIMAL
+  { temp: 'optimal', hum: 'optimal', light: 'optimal', growth: 'highGrowth' },
+  { temp: 'optimal', hum: 'low', light: 'low', growth: 'highGrowth' },
+  { temp: 'optimal', hum: 'optimal', light: 'low', growth: 'highGrowth' },
+  { temp: 'optimal', hum: 'high', light: 'low', growth: 'highGrowth' },
+  { temp: 'high', hum: 'low', light: 'low', growth: 'highGrowth' },
+  { temp: 'high', hum: 'optimal', light: 'low', growth: 'highGrowth' },
+];
+
+function triangle(x, a, b, c) {
+  if (x <= a || x >= c) return 0;
+  if (x === b) return 1;
+  if (x < b) return (x - a) / (b - a);
+  return (c - x) / (c - b);
+}
+
 const triangularMF = (x, a, b, c) => {
-  if (x <= a) return a === b ? 1 : 0;  // Jika x lebih kecil dari a, pastikan low tetap 1 jika a = b
-  if (x >= c) return c === b ? 1 : 0;  // Jika x lebih besar dari c, pastikan high tetap 1 jika c = b
+  if (x <= a) return a === b ? 1 : 0;
+  if (x >= c) return c === b ? 1 : 0;
   if (x < b) return (x - a) / (b - a);
   return (c - x) / (c - b);
 };
 
-// Fungsi keanggotaan untuk suhu, kelembapan, dan intensitas cahaya
 const temperatureFuzzy = (temperature, { TEMPERATURE_LOW, TEMPERATURE_HIGH }) => {
   const mid = (TEMPERATURE_LOW + TEMPERATURE_HIGH) / 2;
   return {
-    low: temperature <= TEMPERATURE_LOW ? 1 : triangularMF(temperature, TEMPERATURE_LOW - 2, TEMPERATURE_LOW, mid),
+    low: temperature <= TEMPERATURE_LOW ? 1 : triangularMF(temperature, TEMPERATURE_LOW, TEMPERATURE_LOW, mid),
     optimal: triangularMF(temperature, TEMPERATURE_LOW, mid, TEMPERATURE_HIGH),
-    high: temperature >= TEMPERATURE_HIGH ? 1 : triangularMF(temperature, mid, TEMPERATURE_HIGH, TEMPERATURE_HIGH + 2),
+    high: temperature >= TEMPERATURE_HIGH ? 1 : triangularMF(temperature, mid, TEMPERATURE_HIGH, TEMPERATURE_HIGH),
   };
 };
 
 const humidityFuzzy = (humidity, { HUMIDITY_LOW, HUMIDITY_HIGH }) => {
   const mid = (HUMIDITY_LOW + HUMIDITY_HIGH) / 2;
   return {
-    low: humidity <= HUMIDITY_LOW ? 1 : triangularMF(humidity, HUMIDITY_LOW - 5, HUMIDITY_LOW, mid),
+    low: humidity <= HUMIDITY_LOW ? 1 : triangularMF(humidity, HUMIDITY_LOW, HUMIDITY_LOW, mid),
     optimal: triangularMF(humidity, HUMIDITY_LOW, mid, HUMIDITY_HIGH),
-    high: humidity >= HUMIDITY_HIGH ? 1 : triangularMF(humidity, mid, HUMIDITY_HIGH, HUMIDITY_HIGH + 5),
+    high: humidity >= HUMIDITY_HIGH ? 1 : triangularMF(humidity, mid, HUMIDITY_HIGH, HUMIDITY_HIGH),
   };
 };
 
 const lightIntensityFuzzy = (lightIntensity, { LIGHT_LOW, LIGHT_HIGH }) => {
   const mid = (LIGHT_LOW + LIGHT_HIGH) / 2;
   return {
-    low: lightIntensity <= LIGHT_LOW ? 1 : triangularMF(lightIntensity, LIGHT_LOW - 1000, LIGHT_LOW, mid),
+    low: lightIntensity <= LIGHT_LOW ? 1 : triangularMF(lightIntensity, LIGHT_LOW, LIGHT_LOW, mid),
     optimal: triangularMF(lightIntensity, LIGHT_LOW, mid, LIGHT_HIGH),
-    high: lightIntensity >= LIGHT_HIGH ? 1 : triangularMF(lightIntensity, mid, LIGHT_HIGH, LIGHT_HIGH + 1000),
+    high: lightIntensity >= LIGHT_HIGH ? 1 : triangularMF(lightIntensity, mid, LIGHT_HIGH, LIGHT_HIGH),
   };
 };
 
-// Aturan fuzzy berdasarkan kondisi
-const fuzzyRules = (temperature, humidity, lightIntensity, thresholds) => {
-  // Hitung nilai fuzzy untuk setiap parameter
-  const temp = temperatureFuzzy(temperature, thresholds);
-  const hum = humidityFuzzy(humidity, thresholds);
-  const light = lightIntensityFuzzy(lightIntensity, thresholds);
-
-  // Fungsi untuk mencari nilai minimum yang valid (> 0)
-  const safeMin = (...values) => {
-    const valid = values.filter((v) => v > 0);
-    return valid.length ? Math.min(...valid) : 0;
+const applyFuzzyRules = (tempFuzzy, humFuzzy, lightFuzzy, ruleBase) => {
+  const results = {
+    highGrowth: 0,
+    moderateGrowth: 0,
+    lowGrowth: 0,
+    stressedGrowth: 0,
   };
 
-  // **1. High Growth**
-  const highGrowth = Math.max(
-    safeMin(temp.optimal, hum.optimal, light.optimal),
-    safeMin(temp.optimal, hum.optimal, light.high),
-    safeMin(temp.optimal, hum.high, light.optimal),
-    safeMin(temp.high, hum.optimal, light.optimal)
-  );
+  ruleBase.forEach(({ temp, hum, light, growth }) => {
+    const degree = Math.min(tempFuzzy[temp], humFuzzy[hum], lightFuzzy[light]);
+    results[growth] = Math.max(results[growth], degree);
+  });
 
-  // **3. Low Growth**
-  const lowGrowth = Math.max(
-        safeMin(temp.low, hum.low, light.low),
-        safeMin(temp.high, hum.high, light.high)
-      );
-
-  // **4. Stressed Growth**
-  const stressedGrowth = Math.min(temp.high, hum.low);
-
-  // **5. Dormant Growth**
-  const dormantGrowth = Math.min(temp.low, Math.max(hum.optimal, light.low));
-
-  const moderateGrowth = (highGrowth === 1 || lowGrowth === 1 || dormantGrowth === 1)
-  ? 0
-  : Math.max(
-      safeMin(temp.optimal, hum.low, light.high),
-      safeMin(temp.high, hum.low, light.high),
-      safeMin(temp.high, hum.high, light.low),
-      safeMin(temp.optimal, hum.optimal, light.low),
-      safeMin(temp.low, hum.high, light.optimal)
-    );
-
-  return { lowGrowth, moderateGrowth, highGrowth, stressedGrowth, dormantGrowth };
+  return results;
 };
 
-
-// Fungsi Defuzzifikasi
 const defuzzify = (fuzzyValues) => {
-  // Ambil nilai keanggotaan dari fuzzyValues
-  const { lowGrowth, moderateGrowth, highGrowth, stressedGrowth, dormantGrowth } = fuzzyValues;
+  const { lowGrowth, moderateGrowth, highGrowth, stressedGrowth } = fuzzyValues;
 
-  // Skor untuk setiap kategori pertumbuhan
   const scores = { 
-    lowGrowth: 20, 
-    moderateGrowth: 60, 
-    highGrowth: 100,
-    stressedGrowth: 40, 
-    dormantGrowth: 10 
+    lowGrowth: 50, 
+    moderateGrowth: 72.5, 
+    highGrowth: 92.5,
+    stressedGrowth: 20, 
   };
 
-  // Hitung pembilang (Σ μ(x) * skor)
   const numerator = (
     (lowGrowth * scores.lowGrowth) +
     (moderateGrowth * scores.moderateGrowth) +
     (highGrowth * scores.highGrowth) +
-    (stressedGrowth * scores.stressedGrowth) +
-    (dormantGrowth * scores.dormantGrowth)
+    (stressedGrowth * scores.stressedGrowth) 
   );
 
-  // Hitung penyebut (Σ μ(x))
-  const denominator = lowGrowth + moderateGrowth + highGrowth + stressedGrowth + dormantGrowth;
-  // console.log("denominator",denominator);
-
-  // Cegah pembagian oleh nol
+  const denominator = lowGrowth + moderateGrowth + highGrowth + stressedGrowth;
   const result = denominator === 0 ? scores.lowGrowth : numerator / denominator;
 
-  return result.toFixed(2); // Mengembalikan hasil dengan 2 angka desimal
+  return result.toFixed(2);
 };
-
 
 // Fungsi utama
 export const calculateFuzzyScore = (temperature, humidity, lightIntensity, orchidType) => { 
@@ -133,57 +132,72 @@ export const calculateFuzzyScore = (temperature, humidity, lightIntensity, orchi
   const humFuzzy = humidityFuzzy(humidity, thresholds);
   const lightFuzzy = lightIntensityFuzzy(lightIntensity, thresholds);
 
-  const fuzzyValues = fuzzyRules(temperature, humidity, lightIntensity, thresholds);
+  const fuzzyValues = applyFuzzyRules(tempFuzzy, humFuzzy, lightFuzzy, fuzzyRuleBase);
 
   const score = defuzzify(fuzzyValues);
+  
+  const dominantGrowth = Object.entries(fuzzyValues)
+    .reduce((a, b) => (a[1] > b[1] ? a : b))[0]; // cari hasil growth tertinggi
 
-  // === Rekomendasi berdasarkan nilai fuzzy ===
-   let recommendation = [];
+  const recommendation = [];
 
-   // Rekomendasi berdasarkan suhu
-    if (tempFuzzy.low > 0.5) {
-      const tempGap = Math.max(0, thresholds.TEMPERATURE_LOW - temperature);
-      const heatingIntensity = Math.round(tempFuzzy.low * tempGap);
-
-      if (heatingIntensity > 0) {
-        recommendation.push(
-          `Suhu terlalu rendah, tingkatkan suhu sekitar ${heatingIntensity}°C (gunakan pemanas ruangan atau tempatkan tanaman di tempat lebih hangat)`
-        );
-      } else {
-        recommendation.push(
-          `Suhu mendekati batas bawah, pertahankan atau sedikit tingkatkan suhu ruangan (misal hindari angin langsung atau dekatkan ke sumber hangat)`
-        );
-      }
-    } else if (tempFuzzy.high > 0.5) {
-      recommendation.push(
-        "Suhu terlalu tinggi, turunkan suhu lingkungan (hindari sinar matahari langsung, buka ventilasi, atau gunakan kipas)"
-      );
+    if (dominantGrowth === 'stressedGrowth' || dominantGrowth === 'lowGrowth') {
+    // Tambahkan rekomendasi suhu jika terlalu rendah
+    if (temperature < thresholds.TEMPERATURE_LOW) {
+      const tempDifference = thresholds.TEMPERATURE_LOW - temperature;
+      const estimatedTime = Math.round(tempDifference * 6);
+      recommendation.push(`Suhu saat ini cukup rendah (${temperature}°C). Disarankan menaikkan suhu sekitar ${tempDifference}°C dengan menyalakan pemanas selama ±${estimatedTime} menit.`);
     }
 
-    // Rekomendasi berdasarkan kelembapan
-  if (humFuzzy.low > 0.1) {
-    const airAmount = Math.round(humFuzzy.low * 600); // 0.0–1.0 mapped to 0–300 ml
-    recommendation.push(`Siramkan air sekitar ${airAmount} ml untuk menaikkan kelembapan`);
-   }
-   else if (humFuzzy.high > 0.5) recommendation.push("Kurangi penyiraman dan tingkatkan ventilasi");
+    // Tambahkan rekomendasi kelembapan jika terlalu rendah
+    if (humidity < thresholds.HUMIDITY_LOW) {
 
-  // Rekomendasi berdasarkan intensitas cahaya
-    if (lightFuzzy.low > 0.5) {
-      const luxDeficit = Math.max(0, thresholds.LIGHT_LOW - lightIntensity);
-      const lightDeficitRatio = lightFuzzy.low;
-      const area = 0.25; // area pot (m²)
-      const extraLumenNeeded = Math.round(luxDeficit * area);
-      const estimatedHours = Math.round(lightDeficitRatio * 12);
+      const deviation = thresholds.HUMIDITY_LOW - humidity;
 
-      if (extraLumenNeeded > 0) {
-        recommendation.push(`Tambahkan pencahayaan sebesar ±${extraLumenNeeded} lumen (misal pasang 1-2 lampu LED tambahan atau lebih dekatkan lampu) selama ${estimatedHours} jam`);
-      } else if (estimatedHours >= 1) {
-        recommendation.push(`Perpanjang durasi pencahayaan selama ${estimatedHours} jam dengan sumber cahaya yang ada (misal tempatkan dekat jendela atau nyalakan lampu lebih lama)`);
-      }
+      const μ_small = triangle(deviation, 0, 0, 5);
+      const μ_medium = triangle(deviation, 5, 7.5, 10);
+      const μ_large = triangle(deviation, 10, 15, 20);
+
+      // Misalnya semprotkan 40 ml untuk deviasi ringan, atau hingga 121 ml untuk deviasi besar
+      const totalMembership = μ_small + μ_medium + μ_large;
+
+      const sprayAmount = totalMembership === 0 ? 0 : (
+        (μ_small * 40) +
+        (μ_medium * 80) +
+        (μ_large * 121.98)
+      ) / totalMembership;
+      recommendation.push(`Semprotkan air ±${sprayAmount.toFixed(2)} ml di sekitar tanaman untuk menaikkan kelembapan.`);
     }
+
+    // Tambahkan rekomendasi pencahayaan jika terlalu rendah
+    if (lightIntensity < thresholds.LIGHT_LOW) {
+      const lightDifference = thresholds.LIGHT_LOW - lightIntensity;
+      const additionalLamps = Math.ceil(lightDifference / 1500);
+      const duration = 3;
+      recommendation.push(`Tambahkan ${additionalLamps} lampu LED 10W (total ±${lightDifference} lumen) selama ±${duration} jam.`);
+    }
+  } else if (dominantGrowth === 'moderateGrowth') {
+    recommendation.push("Pertumbuhan cukup baik. Jaga kestabilan lingkungan.");
+  } else if (dominantGrowth === 'highGrowth') {
+    recommendation.push("Pertumbuhan optimal. Tidak diperlukan tindakan tambahan saat ini.");
+  }
+
+  console.log("=== Dari dalam fungsi ===");
+  console.log("Suhu:", temperature);
+  console.log("Suhu:", tempFuzzy);
+  console.log("Kelembapan:", humidity);
+  console.log("Kelembapan:", humFuzzy);
+  console.log("Cahaya:", lightIntensity);
+  console.log("Cahaya:", lightFuzzy);
+  console.log("Dominant Growth:", dominantGrowth);
+  console.log("Fuzzifikasi:", fuzzyValues);
+  console.log("Skor:", score);
 
   return {
     score, 
     recommendation
   }
 };
+
+console.log(calculateFuzzyScore( 29, 59.5, 19000 , 'phalaenopsis'));
+// console.log(calculateFuzzyScore((Math.floor(Math.random() * (30 - 16) + 10)),	(Math.floor(Math.random() * (80 - 55) + 40)),	(Math.floor(Math.random() * (21000 - 11000) + 5000)), 'phalaenopsis'));

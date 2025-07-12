@@ -10,9 +10,9 @@ const homepageSlice = createSlice({
     individuId: null, // Menyimpan individu_id yang dipilih
     logs: [], // State untuk menyimpan logs
     orchidThresholds: {
-      temperature: { min: 18, max: 30 },
-      humidity: { min: 50, max: 70 },
-      lightIntensity: { min: 10000, max: 15000 },
+      temperature: { min: 18, max: 28 },
+      humidity: { min: 60, max: 75 },
+      lightIntensity: { min: 12000, max: 20000 },
     },
   },
   reducers: {
