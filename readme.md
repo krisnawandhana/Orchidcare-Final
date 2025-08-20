@@ -54,11 +54,6 @@ npx expo start
 
 ## 🔍 Modul Penting
 
-### `/utils/fuzzyLogic.js`
-
-- `calculateEfficiency(volt, ampere)`  
-  Menghitung efisiensi daya listrik menggunakan metode fuzzy.
-
 ### `/components/charts/`
 
 - `TemperatureChart.jsx`, `HumidityChart.jsx`, `LightChart.jsx`  
